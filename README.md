@@ -85,6 +85,8 @@ Exit codes: `0` completed, `1` runtime failure, `2` invalid input or configurati
 
 Reports are written to `results/report.json`, `results/report.html`, and/or `results/report.md`, as selected. They include target and timing metadata, crawl statistics, JavaScript resources, deduplicated findings, severity, confidence, source URL, evidence, line number, and manual verification guidance.
 
+JSON statistics include the total HTTP request count, including retries and validated redirects. Configuration files reject unknown options and invalid value types with exit code `2`.
+
 Example finding shape:
 
 ```json

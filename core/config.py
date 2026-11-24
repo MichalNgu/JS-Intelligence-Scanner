@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -26,6 +27,28 @@ class ScannerConfig:
     ended_at: str = ""
 
     def __post_init__(self) -> None:
+        integer_fields = ("depth", "max_pages", "max_file_size", "max_js_files", "concurrency", "retries")
+        for name in integer_fields:
+            if type(getattr(self, name)) is not int:
+                raise ValueError(f"{name} must be an integer")
+        numeric_fields = ("timeout", "delay", "retry_backoff")
+        for name in numeric_fields:
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number")
+        for name in ("verify_tls", "respect_robots", "allow_private_targets", "verbose"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        if not isinstance(self.target, str):
+            raise ValueError("Target must be a string")
+        if not isinstance(self.user_agent, str):
+            raise ValueError("user_agent must be a string")
+        if not isinstance(self.formats, (list, tuple)) or not self.formats:
+            raise ValueError("formats must be a non-empty list")
+        if any(not isinstance(value, str) or value not in {"json", "html", "markdown", "terminal"} for value in self.formats):
+            raise ValueError("formats may contain only json, html, markdown, and terminal")
+        self.formats = tuple(self.formats)
+
         parsed = urlparse(self.target)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             raise ValueError("Target must be an absolute HTTP or HTTPS URL")
@@ -54,5 +77,8 @@ class ScannerConfig:
             "user_agent", "verify_tls", "respect_robots",
             "allow_private_targets", "formats", "verbose",
         }
-        values = {key: value for key, value in data.items() if key in allowed}
+        unknown = set(data) - allowed
+        if unknown:
+            raise ValueError(f"Unknown configuration option(s): {', '.join(sorted(unknown))}")
+        values = dict(data)
         return cls(target=target, **values)

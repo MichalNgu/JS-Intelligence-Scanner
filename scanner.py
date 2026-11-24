@@ -50,10 +50,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else (logging.WARNING if args.quiet else logging.INFO),
-        format="%(levelname)s %(name)s: %(message)s",
-    )
     try:
         if args.config:
             config = ScannerConfig.from_json(args.config, args.target)
@@ -70,7 +66,7 @@ def main() -> int:
             if args.no_robots:
                 config.respect_robots = False
             config.allow_private_targets = args.allow_private_targets or config.allow_private_targets
-            config.verbose = args.verbose
+            config.verbose = args.verbose or config.verbose
             if args.format:
                 config.formats = tuple(args.format)
             config.__post_init__()
@@ -97,12 +93,18 @@ def main() -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 
+    logging.basicConfig(
+        level=logging.WARNING if args.quiet else (logging.DEBUG if config.verbose else logging.INFO),
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+
     try:
         scope = Scope.from_target(args.target, args.scope, config.allow_private_targets)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     started = time.monotonic()
     http_client = SafeHttpClient(config, scope)
     crawler = Crawler(config, scope, http_client)
@@ -132,16 +134,16 @@ def main() -> int:
     reporter = Reporter(config.target, config.output_directory(args.output))
     duration = time.monotonic() - started
     crawler.stats["duration_seconds"] = round(duration, 3)
-    crawler.stats["requests"] = crawler.http.requests_count + extractor.http.requests_count
-    crawler.stats["started_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    report_path = config.output_directory(args.output) / "report.json"
+    crawler.stats["requests"] = http_client.requests_count
+    crawler.stats["started_at"] = started_at
+    report_path = None
     formats = config.formats
     if "json" in formats:
         report_path = reporter.write_json(findings, resources, crawler.stats)
     if "html" in formats:
-        reporter.write_html(findings, resources, crawler.stats)
+        report_path = reporter.write_html(findings, resources, crawler.stats)
     if "markdown" in formats:
-        reporter.write_markdown(findings, resources, crawler.stats)
+        report_path = reporter.write_markdown(findings, resources, crawler.stats)
     reporter.print_terminal(findings, resources, crawler.stats, report_path, quiet=args.quiet or "terminal" not in formats)
     return 0
 

@@ -53,7 +53,8 @@ class Crawler:
                     path = line.split(":", 1)[1].strip()
                     if path:
                         self._disallowed.add(path)
-        except requests.RequestException:
+        except (requests.RequestException, ValueError) as exc:
+            LOGGER.warning("Could not retrieve robots.txt: %s", exc)
             return
 
     def close(self) -> None:
@@ -78,34 +79,23 @@ class Crawler:
             self.visited.add(url)
             time.sleep(self.config.delay)
             try:
-                response = self.http.get(url, base_url=self.config.target, stream=True)
+                response = self.http.get(
+                    url,
+                    base_url=self.config.target,
+                    stream=True,
+                    allow_redirects=True,
+                )
             except (requests.RequestException, ValueError) as exc:
                 LOGGER.warning("Request failed for %s: %s", url, exc)
                 continue
 
-            redirect_count = 0
-            while response.status_code in (301, 302, 303, 307, 308) and redirect_count < 10:
-                location = response.headers.get("Location")
-                response.close()
-                if not location:
-                    break
-                redirect_count += 1
-                try:
-                    redirect_url = self.scope.validate_url(location, url)
-                    if redirect_url == url:
-                        break
-                    url = redirect_url
-                    if not self.scope.contains(url) or url in self.visited:
-                        break
-                    response = self.http.get(url, base_url=self.config.target, stream=True)
-                except (requests.RequestException, ValueError) as exc:
-                    LOGGER.warning("Redirect rejected or failed for %s: %s", url, exc)
-                    break
-            if response.status_code in (301, 302, 303, 307, 308):
+            url = response.url
+            if 300 <= response.status_code < 400:
                 response.close()
                 continue
 
             if response.status_code >= 400:
+                LOGGER.warning("HTTP %s for %s", response.status_code, url)
                 response.close()
                 continue
             content_type = response.headers.get("Content-Type", "").lower()

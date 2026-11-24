@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import time
 from urllib.parse import urldefrag, urljoin
@@ -16,6 +17,7 @@ from core.http import SafeHttpClient
 
 SCRIPT_HINT = re.compile(r"""(?:(?:src|href)\s*=\s*["']([^"']+)|["']([^"']+\.js(?:[^"'?#]*)?)["'])""", re.I)
 IMPORT_HINT = re.compile(r"""(?:import\s+(?:[^"']*\s+from\s*)?|import\s*\(|require\s*\()\s*["']([^"']+)["']""", re.I)
+LOGGER = logging.getLogger(__name__)
 
 
 class JavaScriptExtractor:
@@ -88,30 +90,25 @@ class JavaScriptExtractor:
                 continue
             time.sleep(self.config.delay)
             try:
-                response = self.http.get(absolute, base_url=source_url, stream=True)
-                redirect_count = 0
-                while response.status_code in (301, 302, 303, 307, 308) and redirect_count < 10:
-                    location = response.headers.get("Location")
-                    response.close()
-                    if not location:
-                        break
-                    try:
-                        absolute = self.scope.validate_url(location, absolute)
-                        if absolute in self.seen:
-                            break
-                        response = self.http.get(absolute, base_url=source_url, stream=True)
-                        redirect_count += 1
-                    except (requests.RequestException, ValueError):
-                        break
-            except (requests.RequestException, ValueError):
+                response = self.http.get(
+                    absolute,
+                    base_url=source_url,
+                    stream=True,
+                    allow_redirects=True,
+                )
+            except (requests.RequestException, ValueError) as exc:
+                LOGGER.warning("Request failed for JavaScript resource %s: %s", absolute, exc)
                 continue
-            if response.status_code >= 400:
+            if response.status_code >= 300:
+                LOGGER.warning("HTTP %s for JavaScript resource %s", response.status_code, absolute)
                 response.close()
                 continue
             try:
                 content = self.http.read_limited(response, self.config.max_file_size)
-            except (requests.RequestException, ValueError):
+            except (requests.RequestException, ValueError) as exc:
+                LOGGER.warning("JavaScript response from %s was rejected: %s", absolute, exc)
                 continue
+            absolute = response.url
             text = content.decode("utf-8", errors="replace")
             digest = hashlib.sha256(content).hexdigest()
             duplicate_of = self.hashes.get(digest, "")

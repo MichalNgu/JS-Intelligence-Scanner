@@ -42,6 +42,7 @@ class Reporter:
                 "internal_hosts": sum(1 for item in findings if item.type == "internal_hostname"),
                 "private_ip_references": sum(1 for item in findings if item.type == "private_ip"),
                 "pages_crawled": crawl_stats.get("pages_crawled", 0),
+                "http_requests": crawl_stats.get("requests", 0),
                 "total_findings": len(findings),
             },
             "javascript_resources": [
@@ -143,7 +144,7 @@ class Reporter:
         findings: list[Finding],
         resources: list[JavaScriptResource],
         crawl_stats: dict,
-        report_path: Path,
+        report_path: Path | None,
         quiet: bool = False,
     ) -> None:
         if quiet:
@@ -172,14 +173,17 @@ class Reporter:
         table.add_row("Private IP references", str(sum(item.type == "private_ip" for item in findings)))
         table.add_row("Total findings", str(len(findings)))
         console.print(table)
-        console.print(f"\nReport: [bold]{report_path}[/]")
+        if report_path is None:
+            console.print("\nReport: no file format selected")
+        else:
+            console.print(f"\nReport: [bold]{report_path}[/]")
 
     def _plain_terminal(
         self,
         findings: list[Finding],
         resources: list[JavaScriptResource],
         crawl_stats: dict,
-        report_path: Path,
+        report_path: Path | None,
     ) -> None:
         print("========================================")
         print("       JS INTELLIGENCE SCANNER")
@@ -193,4 +197,7 @@ class Reporter:
         print(f"Internal hostnames: {sum(item.type == 'internal_hostname' for item in findings)}")
         print(f"Private IP references: {sum(item.type == 'private_ip' for item in findings)}")
         print(f"Total findings: {len(findings)}")
-        print(f"Report: {report_path}")
+        if report_path is None:
+            print("Report: no file format selected")
+        else:
+            print(f"Report: {report_path}")

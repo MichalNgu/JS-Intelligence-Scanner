@@ -35,8 +35,11 @@ def test_http_client_rejects_oversized_content(monkeypatch):
         status_code = 200
         headers = {"Content-Length": "2048"}
         encoding = "utf-8"
+        closed = False
+
         def close(self):
-            pass
+            self.closed = True
+
         def iter_content(self, chunk_size):
             yield b"x" * 2048
 
@@ -49,6 +52,27 @@ def test_http_client_rejects_oversized_content(monkeypatch):
     scope = Scope.from_target("https://example.com", [], allow_private_targets=False)
     monkeypatch.setattr(scope, "_validate_dns", lambda host: None)
     client = SafeHttpClient(config, scope)
-    monkeypatch.setattr(client.session, "get", lambda *args, **kwargs: Response())
+    response = Response()
+    monkeypatch.setattr(client.session, "get", lambda *args, **kwargs: response)
     with pytest.raises(ValueError):
         client.get("https://example.com/file.js", max_size=1024)
+    assert response.closed
+
+
+def test_read_limited_closes_stream_after_oversized_chunk(monkeypatch):
+    class Response:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+        def iter_content(self, chunk_size):
+            yield b"x" * 1025
+
+    config = ScannerConfig(target="https://example.com", retries=0)
+    scope = Scope.from_target("https://example.com", [], allow_private_targets=False)
+    client = SafeHttpClient(config, scope)
+    response = Response()
+    with pytest.raises(ValueError):
+        client.read_limited(response, 1024)
+    assert response.closed
