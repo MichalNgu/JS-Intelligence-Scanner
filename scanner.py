@@ -6,9 +6,9 @@ import json
 import logging
 import sys
 import time
-from pathlib import Path
 
 from core.config import ScannerConfig
+from core.dashboard import HtmlDashboardGenerator
 from core.http import SafeHttpClient
 from core.reporter import Reporter
 from core.scope import Scope
@@ -27,7 +27,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("target", help="Target URL, for example https://example.com")
     parser.add_argument("--depth", type=int, default=None, help="Maximum internal crawl depth")
     parser.add_argument("--output", default="results", help="Report output directory")
-    parser.add_argument("--format", action="append", choices=("json", "html", "markdown", "terminal"), help="Report format (repeatable)")
+    parser.add_argument(
+        "--format",
+        action="append",
+        choices=("json", "html", "markdown", "terminal"),
+        help="Add an optional report format (repeatable); JSON is always generated",
+    )
+    parser.add_argument(
+        "--no-html",
+        action="store_true",
+        help="Disable the default offline HTML dashboard",
+    )
     parser.add_argument("--timeout", type=float, default=None)
     parser.add_argument("--delay", type=float, default=None, help="Delay between requests")
     parser.add_argument("--max-pages", type=int, default=None)
@@ -105,6 +115,7 @@ def main() -> int:
         return 2
 
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    scan_timestamp = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
     started = time.monotonic()
     http_client = SafeHttpClient(config, scope)
     crawler = Crawler(config, scope, http_client)
@@ -131,20 +142,43 @@ def main() -> int:
     raw_findings.extend(infrastructure.analyze(resources))
 
     findings = Analyzer().analyze(raw_findings)
-    reporter = Reporter(config.target, config.output_directory(args.output))
     duration = time.monotonic() - started
     crawler.stats["duration_seconds"] = round(duration, 3)
     crawler.stats["requests"] = http_client.requests_count
     crawler.stats["started_at"] = started_at
-    report_path = None
     formats = config.formats
-    if "json" in formats:
+    try:
+        report_directory = Reporter.create_scan_directory(
+            config.output_directory(args.output),
+            config.target,
+            scan_timestamp,
+        )
+        reporter = Reporter(config.target, report_directory)
         report_path = reporter.write_json(findings, resources, crawler.stats)
-    if "html" in formats:
-        report_path = reporter.write_html(findings, resources, crawler.stats)
-    if "markdown" in formats:
-        report_path = reporter.write_markdown(findings, resources, crawler.stats)
-    reporter.print_terminal(findings, resources, crawler.stats, report_path, quiet=args.quiet or "terminal" not in formats)
+        if not report_path.is_file():
+            raise OSError(f"JSON report was not created: {report_path}")
+
+        if not args.no_html:
+            dashboard_assets = HtmlDashboardGenerator().write_assets(report_directory)
+            if len(dashboard_assets) != 3 or not all(path.is_file() for path in dashboard_assets):
+                raise OSError(f"HTML dashboard was not completely generated: {report_directory}")
+            report_path = report_directory / "index.html"
+
+        if "markdown" in formats:
+            reporter.write_markdown(findings, resources, crawler.stats)
+        reporter.print_terminal(
+            findings,
+            resources,
+            crawler.stats,
+            report_path,
+            quiet=args.quiet or "terminal" not in formats,
+        )
+    except (OSError, ValueError) as exc:
+        logging.getLogger(__name__).exception("Report generation failed: %s", exc)
+        print(f"Error: report generation failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Report directory: {report_directory}")
     return 0
 
 

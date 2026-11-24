@@ -11,6 +11,7 @@ def test_cli_accepts_safe_options():
         "--concurrency", "4",
         "--format", "json",
         "--format", "html",
+        "--no-html",
         "--scope", "example.net",
     ])
     assert args.depth == 3
@@ -18,3 +19,4 @@ def test_cli_accepts_safe_options():
     assert args.max_js_files == 40
     assert args.concurrency == 4
     assert args.format == ["json", "html"]
+    assert args.no_html

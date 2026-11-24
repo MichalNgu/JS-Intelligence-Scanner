@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 import html
+import hashlib
+import ipaddress
+import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from core.models import Finding, JavaScriptResource
 
@@ -12,6 +16,70 @@ class Reporter:
     def __init__(self, target: str, output_dir: Path) -> None:
         self.target = target
         self.output_dir = output_dir
+
+    @staticmethod
+    def target_directory_name(target: str) -> str:
+        hostname = urlsplit(target).hostname
+        if not hostname:
+            raise ValueError("Target URL must contain a hostname")
+        try:
+            parsed_ip = ipaddress.ip_address(hostname)
+            if isinstance(parsed_ip, ipaddress.IPv6Address):
+                hostname = f"ipv6_{parsed_ip.compressed.replace(':', '_')}"
+            else:
+                hostname = str(parsed_ip)
+        except ValueError:
+            try:
+                hostname = hostname.encode("idna").decode("ascii")
+            except UnicodeError:
+                pass
+
+        name = re.sub(r"[^A-Za-z0-9._-]+", "_", hostname).strip(" ._-")
+        if not name or name in {".", ".."}:
+            name = "target"
+        reserved_names = {
+            "CON", "PRN", "AUX", "NUL",
+            *(f"COM{index}" for index in range(1, 10)),
+            *(f"LPT{index}" for index in range(1, 10)),
+        }
+        if name.split(".", 1)[0].upper() in reserved_names:
+            name = f"_{name}"
+        if len(name) > 100:
+            suffix = hashlib.sha256(hostname.encode("utf-8", errors="replace")).hexdigest()[:10]
+            name = f"{name[:89]}_{suffix}"
+        return name
+
+    @classmethod
+    def create_scan_directory(
+        cls,
+        output_root: Path,
+        target: str,
+        timestamp: str | None = None,
+    ) -> Path:
+        root = Path(output_root).expanduser().resolve()
+        target_name = cls.target_directory_name(target)
+        if timestamp is None:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", timestamp):
+            raise ValueError("Invalid report timestamp")
+
+        target_dir = root / target_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        resolved_target_dir = target_dir.resolve()
+        try:
+            resolved_target_dir.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("Target report directory escapes the output root") from exc
+
+        for suffix in range(10000):
+            directory_name = timestamp if suffix == 0 else f"{timestamp}_{suffix:02d}"
+            report_dir = resolved_target_dir / directory_name
+            try:
+                report_dir.mkdir()
+                return report_dir
+            except FileExistsError:
+                continue
+        raise FileExistsError(f"Could not allocate a unique report directory under {resolved_target_dir}")
 
     def write_json(
         self,
@@ -59,7 +127,10 @@ class Reporter:
             ],
             "findings": [finding.to_dict() for finding in findings],
         }
-        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False),
+            encoding="utf-8",
+        )
         return report_path
 
     def write_markdown(

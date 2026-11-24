@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>JS Intelligence Scanner | Security Report</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html" aria-label="JS Intelligence Scanner report home">
+      <span class="brand-mark" aria-hidden="true">JS</span>
+      <span>INTELLIGENCE SCANNER<span class="brand-subtitle">SECURITY REPORT</span></span>
+    </a>
+    <div class="topbar-actions">
+      <button id="reload-report" class="button button-secondary" type="button">Reload report</button>
+      <input id="report-file" class="visually-hidden" type="file" accept=".json,application/json">
+      <label class="button button-primary import-button" for="report-file">Import JSON</label>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="hero panel" aria-labelledby="report-title">
+      <div>
+        <p class="eyebrow">PASSIVE RECONNAISSANCE</p>
+        <h1 id="report-title">Security overview</h1>
+        <p id="target-url" class="target-url">Waiting for report data</p>
+      </div>
+      <div class="scan-meta">
+        <span id="scan-status" class="status-pill">Waiting</span>
+        <span><span class="meta-label">Scanned</span><strong id="scan-timestamp">—</strong></span>
+        <span><span class="meta-label">Duration</span><strong id="scan-duration">—</strong></span>
+      </div>
+    </section>
+
+    <div id="load-status" class="load-status" role="status" aria-live="polite">
+      Loading report…
+    </div>
+
+    <section class="metric-grid" aria-label="Scan summary">
+      <article class="metric-card"><span class="metric-label">Total findings</span><strong id="metric-findings">—</strong><span class="metric-note">Deduplicated observations</span></article>
+      <article class="metric-card metric-danger"><span class="metric-label">Confirmed secret candidates</span><strong id="metric-confirmed">—</strong><span class="metric-note">Credential-like formats</span></article>
+      <article class="metric-card metric-warning"><span class="metric-label">Potential secrets</span><strong id="metric-potential">—</strong><span class="metric-note">Sensitive assignments</span></article>
+      <article class="metric-card"><span class="metric-label">Discovered endpoints</span><strong id="metric-endpoints">—</strong><span class="metric-note">Static references</span></article>
+      <article class="metric-card"><span class="metric-label">Internal hostnames</span><strong id="metric-hosts">—</strong><span class="metric-note">Environment references</span></article>
+      <article class="metric-card"><span class="metric-label">Private IP references</span><strong id="metric-private-ips">—</strong><span class="metric-note">Address literals</span></article>
+      <article class="metric-card"><span class="metric-label">JavaScript files</span><strong id="metric-resources">—</strong><span class="metric-note">Discovered resources</span></article>
+      <article class="metric-card"><span class="metric-label">HTTP requests</span><strong id="metric-requests">—</strong><span class="metric-note">Including redirects and retries</span></article>
+    </section>
+
+    <section class="panel section-panel" aria-labelledby="findings-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">ANALYSIS</p>
+          <h2 id="findings-title">Findings</h2>
+        </div>
+        <span id="finding-count" class="count-label">0 findings</span>
+      </div>
+      <div class="filters">
+        <label class="search-control">Search findings
+          <input id="finding-search" type="search" placeholder="Search values, sources, context…" autocomplete="off">
+        </label>
+        <label>Risk
+          <select id="risk-filter"><option value="">All risks</option></select>
+        </label>
+        <label>Finding type
+          <select id="type-filter"><option value="">All types</option></select>
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Risk</th><th>Type</th><th>Value</th><th>Category</th><th>Source file</th><th>Line</th><th>Confidence</th><th>Details</th></tr></thead>
+          <tbody id="findings-body"><tr><td class="empty-state" colspan="8">Import a report to view findings.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel section-panel" aria-labelledby="resources-title">
+      <div class="section-heading"><div><p class="eyebrow">COLLECTED FILES</p><h2 id="resources-title">JavaScript resources</h2></div><span id="resource-count" class="count-label">0 resources</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>URL</th><th>HTTP status</th><th>File size</th><th>SHA-256</th></tr></thead>
+          <tbody id="resources-body"><tr><td class="empty-state" colspan="4">No JavaScript resources.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="analysis-grid">
+      <section class="panel section-panel" aria-labelledby="endpoints-title">
+        <div class="section-heading"><div><p class="eyebrow">ROUTES & SERVICES</p><h2 id="endpoints-title">Extracted endpoints</h2></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Endpoint</th><th>Risk</th><th>Source</th></tr></thead><tbody id="endpoints-body"><tr><td class="empty-state" colspan="3">No endpoints found.</td></tr></tbody></table></div>
+      </section>
+      <section class="panel section-panel" aria-labelledby="infrastructure-title">
+        <div class="section-heading"><div><p class="eyebrow">ENVIRONMENT</p><h2 id="infrastructure-title">Infrastructure intelligence</h2></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Type</th><th>Reference</th><th>Source</th></tr></thead><tbody id="infrastructure-body"><tr><td class="empty-state" colspan="3">No infrastructure references found.</td></tr></tbody></table></div>
+      </section>
+    </div>
+
+    <section class="panel section-panel" aria-labelledby="secrets-title">
+      <div class="section-heading"><div><p class="eyebrow">SENSITIVE CONFIGURATION</p><h2 id="secrets-title">Secret detection results</h2></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Risk</th><th>Redacted value</th><th>Source</th><th>Line</th></tr></thead><tbody id="secrets-body"><tr><td class="empty-state" colspan="5">No secret-like values found.</td></tr></tbody></table></div>
+    </section>
+
+    <section class="panel section-panel verification-panel" aria-labelledby="verification-title">
+      <div class="section-heading"><div><p class="eyebrow">NEXT STEPS</p><h2 id="verification-title">Recommended manual verification</h2></div></div>
+      <ul id="verification-list"><li>Import report.json to display the report's verification guidance.</li></ul>
+      <p class="notice">Static findings are leads for authorized review, not proof of exploitability. Do not use discovered credentials.</p>
+    </section>
+    <footer>Generated locally by JS Intelligence Scanner · No external assets or analytics</footer>
+  </main>
+</body>
+</html>

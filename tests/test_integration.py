@@ -96,6 +96,12 @@ def _run_cli(monkeypatch, args: list[str]) -> int:
     return scanner.main()
 
 
+def _report_directory(output: Path) -> Path:
+    target_directories = list((output / "127.0.0.1").iterdir())
+    assert len(target_directories) == 1
+    return target_directories[0]
+
+
 def test_full_local_scan_generates_all_reports(local_server, tmp_path, monkeypatch, capsys):
     port = local_server.server_address[1]
     output = tmp_path / "reports"
@@ -117,11 +123,14 @@ def test_full_local_scan_generates_all_reports(local_server, tmp_path, monkeypat
     ]) == 0
     assert "JS INTELLIGENCE SCANNER" in capsys.readouterr().out
 
-    assert (output / "report.json").is_file()
-    assert (output / "report.html").is_file()
-    assert (output / "report.md").is_file()
+    report_directory = _report_directory(output)
+    assert (report_directory / "report.json").is_file()
+    assert (report_directory / "index.html").is_file()
+    assert (report_directory / "style.css").is_file()
+    assert (report_directory / "app.js").is_file()
+    assert (report_directory / "report.md").is_file()
 
-    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+    report = json.loads((report_directory / "report.json").read_text(encoding="utf-8"))
     assert report["statistics"]["pages_crawled"] == 2
     assert report["statistics"]["javascript_files"] >= 2
     assert report["statistics"]["endpoints"] >= 2
@@ -134,8 +143,8 @@ def test_full_local_scan_generates_all_reports(local_server, tmp_path, monkeypat
     assert any(path == "/missing.js" for path, _ in local_server.requests_seen)
     assert not any(path == "/outside" for path, _ in local_server.requests_seen)
 
-    html = (output / "report.html").read_text(encoding="utf-8")
-    markdown = (output / "report.md").read_text(encoding="utf-8")
+    html = (report_directory / "index.html").read_text(encoding="utf-8")
+    markdown = (report_directory / "report.md").read_text(encoding="utf-8")
     assert "<html" in html.lower()
     assert "# JS Intelligence Scanner Report" in markdown
 
@@ -154,7 +163,7 @@ def test_out_of_scope_redirect_is_rejected_before_request(local_server, tmp_path
         "--quiet",
     ]) == 0
 
-    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+    report = json.loads((_report_directory(output) / "report.json").read_text(encoding="utf-8"))
     assert report["statistics"]["pages_crawled"] == 0
     assert ("/redirect-outside", "JS-Intelligence-Scanner/1.0") in local_server.requests_seen
     assert not any(path == "/outside" for path, _ in local_server.requests_seen)
@@ -173,9 +182,30 @@ def test_private_target_is_blocked_without_explicit_opt_in(local_server, tmp_pat
         "--quiet",
     ]) == 0
 
-    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+    report = json.loads((_report_directory(output) / "report.json").read_text(encoding="utf-8"))
     assert report["statistics"]["pages_crawled"] == 0
     assert local_server.requests_seen == []
+
+
+def test_no_html_disables_dashboard_only(local_server, tmp_path, monkeypatch):
+    port = local_server.server_address[1]
+    output = tmp_path / "no-html-report"
+    assert _run_cli(monkeypatch, [
+        f"http://127.0.0.1:{port}/",
+        "--allow-private-targets",
+        "--no-robots",
+        "--no-html",
+        "--retries", "0",
+        "--delay", "0",
+        "--output", str(output),
+        "--quiet",
+    ]) == 0
+
+    report_directory = _report_directory(output)
+    assert (report_directory / "report.json").is_file()
+    assert not (report_directory / "index.html").exists()
+    assert not (report_directory / "style.css").exists()
+    assert not (report_directory / "app.js").exists()
 
 
 @pytest.mark.parametrize("path", ["/oversized", "/stream-oversized"])
@@ -196,7 +226,7 @@ def test_oversized_response_is_rejected_by_cli(
         "--quiet",
     ]) == 0
 
-    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+    report = json.loads((_report_directory(output) / "report.json").read_text(encoding="utf-8"))
     assert report["statistics"]["pages_crawled"] == 0
     assert len(local_server.requests_seen) == 1
 
@@ -218,7 +248,8 @@ def test_http_errors_and_missing_javascript_are_nonfatal(
         "--quiet",
     ]) == 0
 
-    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+    report_directory = _report_directory(output)
+    report = json.loads((report_directory / "report.json").read_text(encoding="utf-8"))
     assert report["statistics"]["javascript_files"] == 0
 
 
@@ -252,9 +283,12 @@ def test_config_values_and_cli_overrides(local_server, tmp_path, monkeypatch):
         "--quiet",
     ]) == 0
 
-    assert (output / "report.md").is_file()
-    assert not (output / "report.json").exists()
-    assert not (output / "report.html").exists()
+    report_directory = _report_directory(output)
+    assert (report_directory / "report.json").is_file()
+    assert (report_directory / "index.html").is_file()
+    assert (report_directory / "style.css").is_file()
+    assert (report_directory / "app.js").is_file()
+    assert (report_directory / "report.md").is_file()
     assert local_server.requests_seen == [
         ("/", "cli-agent"),
         ("/app.js", "cli-agent"),
@@ -297,4 +331,5 @@ def test_cli_runs_as_a_process(local_server, tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert json.loads((output / "report.json").read_text(encoding="utf-8"))["scan_status"] == "completed"
+    report_directory = _report_directory(output)
+    assert json.loads((report_directory / "report.json").read_text(encoding="utf-8"))["scan_status"] == "completed"
