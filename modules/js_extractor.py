@@ -19,10 +19,16 @@ IMPORT_HINT = re.compile(r"""(?:import\s+(?:[^"']*\s+from\s*)?|import\s*\(|requi
 
 
 class JavaScriptExtractor:
-    def __init__(self, config: ScannerConfig, scope: Scope) -> None:
+    def __init__(
+        self,
+        config: ScannerConfig,
+        scope: Scope,
+        http_client: SafeHttpClient | None = None,
+    ) -> None:
         self.config = config
         self.scope = scope
-        self.http = SafeHttpClient(config, scope)
+        self.http = http_client or SafeHttpClient(config, scope)
+        self._owns_http = http_client is None
         self.resources: list[JavaScriptResource] = []
         self.seen: set[str] = set()
         self.hashes: dict[str, str] = {}
@@ -136,4 +142,5 @@ class JavaScriptExtractor:
         return self.resources
 
     def close(self) -> None:
-        self.http.close()
+        if self._owns_http:
+            self.http.close()

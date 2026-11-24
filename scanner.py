@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from core.config import ScannerConfig
+from core.http import SafeHttpClient
 from core.reporter import Reporter
 from core.scope import Scope
 from modules.analyzer import Analyzer
@@ -24,19 +25,19 @@ def build_parser() -> argparse.ArgumentParser:
         description="Passive JavaScript reconnaissance for authorized targets."
     )
     parser.add_argument("target", help="Target URL, for example https://example.com")
-    parser.add_argument("--depth", type=int, default=2, help="Maximum internal crawl depth")
+    parser.add_argument("--depth", type=int, default=None, help="Maximum internal crawl depth")
     parser.add_argument("--output", default="results", help="Report output directory")
     parser.add_argument("--format", action="append", choices=("json", "html", "markdown", "terminal"), help="Report format (repeatable)")
-    parser.add_argument("--timeout", type=float, default=10.0)
-    parser.add_argument("--delay", type=float, default=0.2, help="Delay between requests")
-    parser.add_argument("--max-pages", type=int, default=100)
-    parser.add_argument("--max-file-size", type=int, default=5 * 1024 * 1024)
-    parser.add_argument("--max-js-files", type=int, default=100)
-    parser.add_argument("--concurrency", type=int, default=1)
-    parser.add_argument("--retries", type=int, default=2)
-    parser.add_argument("--retry-backoff", type=float, default=0.5)
+    parser.add_argument("--timeout", type=float, default=None)
+    parser.add_argument("--delay", type=float, default=None, help="Delay between requests")
+    parser.add_argument("--max-pages", type=int, default=None)
+    parser.add_argument("--max-file-size", type=int, default=None)
+    parser.add_argument("--max-js-files", type=int, default=None)
+    parser.add_argument("--concurrency", type=int, default=None)
+    parser.add_argument("--retries", type=int, default=None)
+    parser.add_argument("--retry-backoff", type=float, default=None)
     parser.add_argument("--scope", action="append", default=[], help="Additional allowed hostname")
-    parser.add_argument("--user-agent", default="JS-Intelligence-Scanner/1.0")
+    parser.add_argument("--user-agent", default=None)
     parser.add_argument("--insecure", action="store_true", help="Disable TLS certificate verification")
     parser.add_argument("--no-robots", action="store_true", help="Skip robots.txt")
     parser.add_argument("--quiet", action="store_true")
@@ -56,28 +57,36 @@ def main() -> int:
     try:
         if args.config:
             config = ScannerConfig.from_json(args.config, args.target)
-            config.depth = args.depth if args.depth != 2 else config.depth
-            config.timeout = args.timeout if args.timeout != 10.0 else config.timeout
-            config.max_pages = args.max_pages if args.max_pages != 100 else config.max_pages
-            config.verify_tls = not args.insecure
-            config.respect_robots = not args.no_robots
+            for name in (
+                "depth", "timeout", "delay", "max_pages", "max_file_size",
+                "max_js_files", "concurrency", "retries", "retry_backoff",
+                "user_agent",
+            ):
+                value = getattr(args, name)
+                if value is not None:
+                    setattr(config, name, value)
+            if args.insecure:
+                config.verify_tls = False
+            if args.no_robots:
+                config.respect_robots = False
             config.allow_private_targets = args.allow_private_targets or config.allow_private_targets
             config.verbose = args.verbose
             if args.format:
                 config.formats = tuple(args.format)
+            config.__post_init__()
         else:
             config = ScannerConfig(
                 target=args.target,
-                depth=args.depth,
-                timeout=args.timeout,
-                delay=args.delay,
-                max_pages=args.max_pages,
-                max_file_size=args.max_file_size,
-                max_js_files=args.max_js_files,
-                concurrency=args.concurrency,
-                retries=args.retries,
-                retry_backoff=args.retry_backoff,
-                user_agent=args.user_agent,
+                depth=args.depth if args.depth is not None else 2,
+                timeout=args.timeout if args.timeout is not None else 10.0,
+                delay=args.delay if args.delay is not None else 0.2,
+                max_pages=args.max_pages if args.max_pages is not None else 100,
+                max_file_size=args.max_file_size if args.max_file_size is not None else 5 * 1024 * 1024,
+                max_js_files=args.max_js_files if args.max_js_files is not None else 100,
+                concurrency=args.concurrency if args.concurrency is not None else 1,
+                retries=args.retries if args.retries is not None else 2,
+                retry_backoff=args.retry_backoff if args.retry_backoff is not None else 0.5,
+                user_agent=args.user_agent or "JS-Intelligence-Scanner/1.0",
                 verify_tls=not args.insecure,
                 respect_robots=not args.no_robots,
                 allow_private_targets=args.allow_private_targets,
@@ -95,8 +104,9 @@ def main() -> int:
         return 2
 
     started = time.monotonic()
-    crawler = Crawler(config, scope)
-    extractor = JavaScriptExtractor(config, scope)
+    http_client = SafeHttpClient(config, scope)
+    crawler = Crawler(config, scope, http_client)
+    extractor = JavaScriptExtractor(config, scope, http_client)
     try:
         pages = crawler.crawl()
         resources = extractor.extract(pages)
@@ -107,6 +117,7 @@ def main() -> int:
     finally:
         crawler.close()
         extractor.close()
+        http_client.close()
 
     endpoint_finder = EndpointFinder()
     secret_scanner = SecretScanner()

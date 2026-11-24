@@ -16,10 +16,16 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Crawler:
-    def __init__(self, config: ScannerConfig, scope: Scope) -> None:
+    def __init__(
+        self,
+        config: ScannerConfig,
+        scope: Scope,
+        http_client: SafeHttpClient | None = None,
+    ) -> None:
         self.config = config
         self.scope = scope
-        self.http = SafeHttpClient(config, scope)
+        self.http = http_client or SafeHttpClient(config, scope)
+        self._owns_http = http_client is None
         self.visited: set[str] = set()
         self.pages: dict[str, str] = {}
         self.stats = {"pages_crawled": 0, "requests": 0}
@@ -51,7 +57,8 @@ class Crawler:
             return
 
     def close(self) -> None:
-        self.http.close()
+        if self._owns_http:
+            self.http.close()
 
     def _robots_allow(self, url: str) -> bool:
         path = urlparse(url).path or "/"

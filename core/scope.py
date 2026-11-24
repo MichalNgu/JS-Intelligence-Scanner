@@ -21,10 +21,19 @@ class Scope:
         self.target = target
         self.allow_private_targets = allow_private_targets
         self.target_host = self.normalize_host(parsed.hostname or "")
-        self.allowed_hosts = {self.normalize_host(host) for host in allowed_hosts if host}
+        self.allowed_hosts: set[str] = set()
+        self.allowed_subdomains: set[str] = set()
+        for host in allowed_hosts:
+            if not host:
+                continue
+            raw = host.strip().lower().rstrip(".")
+            if raw.startswith("*."):
+                self.allowed_subdomains.add(self.normalize_host(raw))
+            else:
+                self.allowed_hosts.add(self.normalize_host(raw))
         self.allowed_hosts.add(self.target_host)
-        self.allowed_ports = allowed_ports or {80 if parsed.scheme == "http" else 443}
-        self.allowed_ports.add(parsed.port or (80 if parsed.scheme == "http" else 443))
+        origin_port = parsed.port or (80 if parsed.scheme == "http" else 443)
+        self.allowed_ports = set(allowed_ports) if allowed_ports is not None else {origin_port}
 
     @classmethod
     def from_target(
@@ -46,9 +55,25 @@ class Scope:
         if host.startswith("*."):
             host = host[2:]
         try:
-            return host.encode("idna").decode("ascii")
+            return str(ipaddress.ip_address(host))
+        except ValueError:
+            pass
+        if not host or any(character.isspace() or ord(character) > 127 for character in host):
+            raise ScopeViolation("Invalid hostname")
+        if any(character in host for character in "/\\?#@:%"):
+            raise ScopeViolation("Invalid hostname")
+        try:
+            normalized = host.encode("idna").decode("ascii").lower()
         except UnicodeError as exc:
             raise ScopeViolation("Invalid hostname") from exc
+        if len(normalized) > 253 or any(
+            not label or len(label) > 63 or not all(c.isalnum() or c == "-" for c in label)
+            or label.startswith("-") or label.endswith("-")
+            for label in normalized.split(".")
+        ):
+            if not normalized.replace(".", "").isdigit():
+                raise ScopeViolation("Invalid hostname")
+        return normalized
 
     def validate_url(self, url: str, base: str | None = None) -> str:
         absolute = urljoin(base or self.target, url)
@@ -60,7 +85,10 @@ class Scope:
         if not parsed.hostname:
             raise ScopeViolation("URL has no valid hostname")
         host = self.normalize_host(parsed.hostname)
-        port = parsed.port or (80 if parsed.scheme == "http" else 443)
+        try:
+            port = parsed.port or (80 if parsed.scheme == "http" else 443)
+        except ValueError as exc:
+            raise ScopeViolation("Invalid URL port") from exc
         if port not in self.allowed_ports:
             raise ScopeViolation(f"Port {port} is outside the authorized scope")
         if not self._host_allowed(host):
@@ -70,9 +98,10 @@ class Scope:
 
     def _netloc(self, parsed, host: str, port: int) -> str:
         default_port = 80 if parsed.scheme == "http" else 443
+        rendered_host = f"[{host}]" if ":" in host else host
         if port == default_port:
-            return host
-        return f"{host}:{port}"
+            return rendered_host
+        return f"{rendered_host}:{port}"
 
     def _host_allowed(self, host: str) -> bool:
         if host == self.target_host:
@@ -80,6 +109,7 @@ class Scope:
         for allowed in self.allowed_hosts:
             if host == allowed:
                 return True
+        for allowed in self.allowed_subdomains:
             if host.endswith("." + allowed):
                 return True
         return False
